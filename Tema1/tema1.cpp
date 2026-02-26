@@ -1,18 +1,28 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <chrono>
 
 #define PI acos(-1)
 
 using namespace std;
 
+double reduce_x(double x) {
+    x = fmod(x, PI);
+    if (x > PI / 2.0) x -= PI;
+    if (x < -PI / 2.0) x += PI;
+    return x;
+}
+
 double my_tan_poly(double x)
 {
-    int sign = (x > 0) - (x < 0);
+    x = reduce_x(x);
+    if (fabs(fabs(x) - PI/2.0) < 1e-15) return INFINITY;
+    int sign = (x >= 0) - (x < 0);
     x = fabs(x);
 
     if (x > PI / 4)
-        return sign * (1.0 / my_tan_poly(PI/2 - x));
+        return sign * (1.0 / my_tan_poly(PI/2.0 - x));
 
     double c1 = 1.0/3.0;
     double c2 = 2.0/15.0;
@@ -29,47 +39,37 @@ double my_tan_poly(double x)
     return sign * result;
 }
 
-double my_tan_cf(double x, double eps = 1e-12)
+double my_tan_cf(double x, double eps)
 {
-    int sign = (x > 0) - (x < 0);
-    x = fabs(x);
-
-    if (x > PI / 4)
-        return sign * (1.0 / my_tan_cf(PI/2 - x, eps));
+    x = reduce_x(x);
+    if (fabs(fabs(x) - PI/2.0) < 1e-15) return INFINITY;
+    if (fabs(x) < 1e-15) return 0.0;
 
     double tiny = 1e-12;
 
-    double b0 = 1.0;
-    double f = b0;
-    if (fabs(f) < tiny) f = tiny;
-
+    double f = tiny;
     double C = f;
     double D = 0.0;
-
     double delta;
-    double a, b;
 
-    int j = 1;
+    for (int j = 1; j < 1000; j++) {
+        double a = (j == 1) ? x : -x*x;
+        double b = 2.0 * j - 1.0;
 
-    do {
-        a = -x*x;
-        b = 2*j + 1;
-
-        D = b + a*D;
-        if (fabs(D) < tiny) D = tiny;
-
-        C = b + a/C;
-        if (fabs(C) < tiny) C = tiny;
-
+        D = b + a * D;
+        if (fabs(D) < 1e-18) D = tiny;
         D = 1.0 / D;
+
+        C = b + a / C;
+        if (fabs(C) < 1e-18) C = tiny;
+
         delta = C * D;
-        f = f * delta;
+        f *= delta;
 
-        j++;
+        if (fabs(delta - 1.0) < eps) break;
+    }
 
-    } while (fabs(delta - 1.0) > eps);
-
-    return sign * x / f;
+    return f;
 }
 
 int main() {
@@ -136,31 +136,47 @@ int main() {
     else
         cout << "Nu se observa diferenta in acest caz." << endl;
 
-    // 3) aproximarea functiei tangenta
+    // 3) Aproximarea functiei tangenta
     const int N = 10000;
-    double max_err_poly = 0;
-    double max_err_cf = 0;
-
-    srand(0);
+    double x_vals[N];
+    srand(time(0));
 
     for(int i = 0; i < N; i++)
-    {
-        double xr = -PI/2 + (double)rand()/RAND_MAX * PI;
+        x_vals[i] = -PI/2.0 + (double)rand()/RAND_MAX * PI;
 
-        double exact = tan(xr);
+    int p;
+    cout << "\nIntrodu p pentru precizie (eps = 10^-p): ";
+    cin >> p;
+    double eps = pow(10.0, -p);
 
-        double err1 = fabs(exact - my_tan_poly(xr));
-        double err2 = fabs(exact - my_tan_cf(xr));
-
-        if(err1 > max_err_poly)
-            max_err_poly = err1;
-
-        if(err2 > max_err_cf)
-            max_err_cf = err2;
+    // masurare polinom
+    auto start_poly = chrono::high_resolution_clock::now();
+    double max_err_poly = 0;
+    for(int i = 0; i < N; i++) {
+        double exact = tan(x_vals[i]);
+        double approx = my_tan_poly(x_vals[i]);
+        if(isfinite(exact) && isfinite(approx))
+            max_err_poly = max(max_err_poly, fabs(exact - approx));
     }
+    auto end_poly = chrono::high_resolution_clock::now();
 
-    cout << endl << "Eroare maxima polinom: " << max_err_poly << endl;
-    cout << "Eroare maxima fractii continue: " << max_err_cf << endl;
+    // masurare fractii continue
+    auto start_cf = chrono::high_resolution_clock::now();
+    double max_err_cf = 0;
+    for(int i = 0; i < N; i++) {
+        double exact = tan(x_vals[i]);
+        double approx = my_tan_cf(x_vals[i], eps);
+        if(isfinite(exact) && isfinite(approx))
+            max_err_cf = max(max_err_cf, fabs(exact - approx));
+    }
+    auto end_cf = chrono::high_resolution_clock::now();
 
+    chrono::duration<double, milli> time_poly = end_poly - start_poly;
+    chrono::duration<double, milli> time_cf = end_cf - start_cf;
+
+    cout << fixed << setprecision(15);
+    cout << endl << "REZULTATE 10.000 ITERATII" << endl;
+    cout << "Polinom: Max Err = " << max_err_poly << " | Timp = " << time_poly.count() << " ms" << endl;
+    cout << "Fractii: Max Err = " << max_err_cf << " | Timp = " << time_cf.count() << " ms" << endl;
     return 0;
 }
