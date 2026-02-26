@@ -45,29 +45,42 @@ double my_tan_cf(double x, double eps)
     if (fabs(fabs(x) - PI/2.0) < 1e-15) return INFINITY;
     if (fabs(x) < 1e-15) return 0.0;
 
-    double tiny = 1e-12;
+    double b0 = 0.0;
+    double mic = 1e-12;
 
-    double f = tiny;
+    double f = b0;
+    if (fabs(f) < 1e-18) f = mic;
+
     double C = f;
     double D = 0.0;
+    int j = 1;
     double delta;
 
-    for (int j = 1; j < 1000; j++) {
-        double a = (j == 1) ? x : -x*x;
-        double b = 2.0 * j - 1.0;
+    do {
+        // a1=x, b1=1; apoi aj=-x^2, bj=2j-1
+        double aj = (j == 1) ? x : -x * x;
+        double bj = (j == 1) ? 1.0 : (2.0 * j - 1.0);
 
-        D = b + a * D;
-        if (fabs(D) < 1e-18) D = tiny;
+        // Dj = bj + aj * Dj-1
+        D = bj + aj * D;
+        if (fabs(D) < 1e-18) D = mic;
+
+        // Cj = bj + aj / Cj-1
+        C = bj + aj / C;
+        if (fabs(C) < 1e-18) C = mic;
+
+        // Dj = 1 / Dj
         D = 1.0 / D;
 
-        C = b + a / C;
-        if (fabs(C) < 1e-18) C = tiny;
-
+        // Delta_j = Cj * Dj
         delta = C * D;
-        f *= delta;
 
-        if (fabs(delta - 1.0) < eps) break;
-    }
+        // fj = Delta_j * fj-1
+        f = delta * f;
+
+        j = j + 1;
+
+    } while (fabs(delta - 1.0) >= eps);
 
     return f;
 }
@@ -175,7 +188,7 @@ int main() {
     chrono::duration<double, milli> time_cf = end_cf - start_cf;
 
     cout << fixed << setprecision(15);
-    cout << endl << "REZULTATE 10.000 ITERATII" << endl;
+    cout << endl << "Rezultate 10.000 de iteratii" << endl;
     cout << "Polinom: Max Err = " << max_err_poly << " | Timp = " << time_poly.count() << " ms" << endl;
     cout << "Fractii: Max Err = " << max_err_cf << " | Timp = " << time_cf.count() << " ms" << endl;
     return 0;
