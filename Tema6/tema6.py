@@ -42,71 +42,62 @@ def least_squares_poly_coeffs(x: np.ndarray, y: np.ndarray, m: int) -> np.ndarra
 # - h_i = x_{i+1}-x_i
 # - sistem HA = rhs (A0..An)
 # - apoi b_i, c_i si evaluare pe interval
-def clamped_cubic_spline_setup(x: np.ndarray, y: np.ndarray, da: float, db: float):
+def clamped_cubic_spline_setup(x, y, da, db):
     n = len(x) - 1
-    h = np.diff(x)  # h_i, i=0..n-1
+    h = np.diff(x)
 
-    # construim H (n+1 x n+1) si rhs (n+1)
-    H = np.zeros((n + 1, n + 1), dtype=float)
-    rhs = np.zeros(n + 1, dtype=float)
+    H = np.zeros((n+1, n+1), float)
+    rhs = np.zeros(n+1, float)
 
-    # prima ecuatie: 2h0 A0 + h0 A1 = 6((y1-y0)/h0 - da)
-    H[0, 0] = 2 * h[0]
-    H[0, 1] = h[0]
-    rhs[0] = 6 * ((y[1] - y[0]) / h[0] - da)
+    # clamped left
+    H[0,0] = 2*h[0]
+    H[0,1] = h[0]
+    rhs[0] = 6*((y[1]-y[0])/h[0] - da)
 
-    # ecuatiile interioare
+    # interior
     for i in range(1, n):
-        H[i, i - 1] = h[i - 1]
-        H[i, i] = 2 * (h[i - 1] + h[i])
-        H[i, i + 1] = h[i]
-        rhs[i] = 6 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
+        H[i,i-1] = h[i-1]
+        H[i,i]   = 2*(h[i-1] + h[i])
+        H[i,i+1] = h[i]
+        rhs[i]   = 6*((y[i+1]-y[i])/h[i] - (y[i]-y[i-1])/h[i-1])
 
-    # ultima ecuatie: h_{n-1} A_{n-1} + 2h_{n-1} A_n = 6(db - (yn-yn-1)/h_{n-1})
-    H[n, n - 1] = h[n - 1]
-    H[n, n] = 2 * h[n - 1]
-    rhs[n] = 6 * (db - (y[n] - y[n - 1]) / h[n - 1])
+    # clamped right
+    H[n,n-1] = h[n-1]
+    H[n,n]   = 2*h[n-1]
+    rhs[n]   = 6*(db - (y[n]-y[n-1])/h[n-1])
 
-    # rezolva A
-    A = np.linalg.solve(H, rhs)  # A0..An
+    M = np.linalg.solve(H, rhs)   # M_i = S''(x_i)
+    return h, M
 
-    # b_i si c_i (i=0..n-1)
-    b = np.zeros(n, dtype=float)
-    c = np.zeros(n, dtype=float)
-    for i in range(n):
-        b[i] = (y[i + 1] - y[i]) / h[i] - (h[i] * (A[i + 1] - A[i])) / 6.0
-        c[i] = (x[i + 1] * y[i] - x[i] * y[i + 1]) / h[i] - (h[i] * (x[i + 1] * A[i] - x[i] * A[i + 1])) / 6.0
-
-    return h, A, b, c
-
-
-def clamped_cubic_spline_eval(x: np.ndarray, y: np.ndarray, h: np.ndarray, A: np.ndarray, b: np.ndarray, c: np.ndarray, xbar: float) -> float:
-    # gasim i astfel incat xbar in [x_i, x_{i+1}]
+def clamped_cubic_spline_eval(x, y, h, M, xbar):
     i = np.searchsorted(x, xbar) - 1
-    i = max(0, min(i, len(x) - 2))  # clamp
+    i = max(0, min(i, len(x) - 2))
 
-    xi, xip1 = x[i], x[i + 1]
+    xi, xip1 = x[i], x[i+1]
     hi = h[i]
 
-    # S(x) = ((x-xi)^3 A_{i+1} + (x_{i+1}-x)^3 A_i)/(6 hi) + b_i x + c_i
-    return (((xbar - xi) ** 3) * A[i + 1] + ((xip1 - xbar) ** 3) * A[i]) / (6.0 * hi) + b[i] * xbar + c[i]
+    term1 = M[i]   * (xip1 - xbar)**3 / (6*hi)
+    term2 = M[i+1] * (xbar - xi)**3   / (6*hi)
+    term3 = (y[i]   - M[i]*hi*hi/6)   * (xip1 - xbar) / hi
+    term4 = (y[i+1] - M[i+1]*hi*hi/6) * (xbar - xi)   / hi
+
+    return term1 + term2 + term3 + term4
 
 def main():
     np.random.seed(0)
 
-    # input
     x0 = float(input("x0 = "))
     xn = float(input("xn = "))
     if x0 >= xn:
-        raise ValueError("Trebuie x0 < xn.")
+        raise ValueError("Trebuie x0 < xn!")
 
-    n = int(input("n (numar intervale, ai n+1 puncte) = "))
+    n = int(input("n = "))
     if n < 2:
         raise ValueError("Ia n >= 2.")
 
     xbar = float(input("x_bar (sa NU fie egal cu vreun xi) = "))
     if not (x0 < xbar < xn):
-        print("Atentie: ideal x_bar in (x0, xn). Continui oricum.")
+        print("Atentie: ideal x_bar in (x0, xn)!")
 
     # m < 6
     m_list_str = input("Lista grade m (<6), ex: 1 2 3 4 5 = ").strip()
@@ -115,7 +106,6 @@ def main():
         if m >= 6 or m < 0:
             raise ValueError("Toate m trebuie sa fie in {0,1,2,3,4,5}.")
 
-    # genereaza nodurile
     # x1..x_{n-1} random in (x0,xn), sortate
     interior = np.random.uniform(x0, xn, size=n - 1)
     interior.sort()
@@ -133,7 +123,7 @@ def main():
         print(f"i={i:2d}: x={x[i]: .6f}, y={y[i]: .6f}")
 
     # LS polinomial pentru fiecare m
-    print("\n===== Aproximare LS (cele mai mici patrate) + Horner =====")
+    print("\nAproximare LS (cele mai mici patrate) + Horner")
     ls_results = {}
     for m in m_list:
         a = least_squares_poly_coeffs(x, y, m)  # a0..am
@@ -146,16 +136,16 @@ def main():
 
         ls_results[m] = (a, P_xbar)
 
-        print(f"\n--- m = {m} ---")
+        print(f"\nm = {m}")
         print("coef [a0..am] =", np.array2string(a, precision=6, suppress_small=True))
         print(f"Pm(x_bar) = {P_xbar:.10f}")
         print(f"|Pm(x_bar) - f(x_bar)| = {err_xbar:.10e}")
         print(f"Sum_i |Pm(xi) - yi| = {sum_abs:.10e}")
 
     # spline cubic C^2 clamped 
-    print("\n===== Spline cubic C^2 (clamped) =====")
-    h, A, b, c = clamped_cubic_spline_setup(x, y, da, db)
-    S_xbar = clamped_cubic_spline_eval(x, y, h, A, b, c, xbar)
+    print("\nSpline cubic C^2 (clamped)")
+    h, M = clamped_cubic_spline_setup(x, y, da, db)
+    S_xbar = clamped_cubic_spline_eval(x, y, h, M, xbar)
     err_s = abs(S_xbar - true_f_xbar)
     print(f"Sf(x_bar) = {S_xbar:.10f}")
     print(f"|Sf(x_bar) - f(x_bar)| = {err_s:.10e}")
@@ -175,7 +165,7 @@ def main():
         plt.plot(grid, P_grid, label=f"P_m, m={m}")
 
     # spline
-    S_grid = np.array([clamped_cubic_spline_eval(x, y, h, A, b, c, t) for t in grid])
+    S_grid = np.array([clamped_cubic_spline_eval(x, y, h, M, t) for t in grid])
     plt.plot(grid, S_grid, label="Spline C^2")
 
     plt.axvline(xbar, linestyle="--", label="x_bar")
@@ -183,7 +173,6 @@ def main():
     plt.legend()
     plt.grid(True)
     plt.show()
-
 
 if __name__ == "__main__":
     main()
